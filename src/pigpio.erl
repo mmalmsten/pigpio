@@ -4,104 +4,107 @@
 
 -author(mmalmsten).
 
--behaviour(gen_server).
+-export([read/1, start/2, write/2]).
 
--export([connect/3, read/1, write/2]).
+-export([command/1, command/2, command/3, init/2,
+	 loop/1]).
 
--export([handle_call/3, handle_cast/2, handle_info/2,
-	 init/1, start_link/3]).
+-define(UINT, 32 / little).
 
 %%
 %% pigpio commands
 %%
 
-connect(Ip, Port, Gpio) ->
-    {ok, Pid} = start_link(Ip, Port, Gpio),
+% -spec start(Gpio::integer(), Type::atom() = button) -> {ok, Pid::pid()}.
+start(Gpio, Type) ->
+    Pid = spawn_link(?MODULE, init, [Gpio, Type]),
     register(list_to_atom(integer_to_list(Gpio)), Pid),
     {ok, Pid}.
 
-read(Pid) -> gen_server:call(Pid, read).
+init(Gpio, Type) ->
+    application:start(inets),
+    {ok, Socket} = gen_tcp:connect("127.0.0.1", 8888,
+				   [binary, {packet, 0}]),
+    self() ! {init, Type},
+    loop(#{socket => Socket, gpio => Gpio, type => Type}).
 
-write(Pid, Msg) -> gen_server:call(Pid, {write, Msg}).
+loop(State) ->
+    io:format("State ~p~n", [State]),
+    #{gpio := Gpio, socket := Socket} = State,
+    receive
+      {init, button} ->
+	  gen_tcp:send(Socket, command(setmode, Gpio, 0)),
+	  gen_tcp:send(Socket, command(setpullupdown, Gpio, 2)),
+	  timer:send_interval(1000, read),
+	  loop(State);
+      {read, Response_pid} ->
+	  Response_pid ! maps:get(msg, State), loop(State);
+      {tcp, _, Msg} -> parse(Msg), loop(State);
+      {msg, Key, Value} -> loop(maps:put(Key, Value, State));
+      read ->
+	  gen_tcp:send(Socket, command(read, Gpio)), loop(State);
+      X ->
+	  io:format("Unexpected message ~p~n", [X]), loop(State)
+    end.
 
-%%
-%% Handle gen_server and tcp connection
-%%
+% -spec read(Gpio::integer()) -> {ok, Msg}.
+read(Gpio) ->
+    whereis(list_to_atom(integer_to_list(Gpio))) !
+      {read, self()},
+    receive Msg -> Msg end.
 
-start_link(Ip, Port, Gpio) ->
-    {ok, Pid} = gen_server:start_link(?MODULE,
-				      {Ip, Port, Gpio}, []),
-    {ok, Pid}.
-
-init(_) -> {ok, []}.
-
-% init({_Ip, _Port, _Gpio}) ->
-    % application:start(inets),
-    % TODO: calculate magic number from "Gpio" here
-    % Bits = 33554432,
-    % {ok, Socket} = gen_tcp:connect(Ip, Port,
-
-        % 			   [binary, {packet, 0}]),
-
-    % ok = gen_tcp:send(Socket,
-        % 	      <<0:32, Gpio:32, 0:32, 0:32>>),
-
-    % ok = gen_tcp:send(Socket,
-        % 	      <<1:32, Gpio:32, 0:32, 0:32>>),
-
-    % ok = gen_tcp:send(Socket, <<99:32, 0:32, 0:32, 0:32>>),
-    % ok = gen_tcp:send(Socket,
-        % 	      <<19:32, 0:32, Bits:32, 0:32>>),
-
-    % {ok, [Socket]}.
-
-handle_call(read, _, State) ->
-    {reply, round(rand:uniform()) == 1,
-     State}; % Simulator for now
-handle_call({write, Msg}, _, State) ->
-    {reply, Msg, State};
-handle_call(terminate, _, State) ->
-    {stop, normal, ok, State}.
-
-handle_cast(Msg, State) ->
-    io:format("Unexpected message: ~p~n", [Msg]),
-    {noreply, State}.
-
-handle_info(Msg, State) ->
-    io:format("Unexpected message: ~p~n", [Msg]),
-    {noreply, State}.
+% -spec write(Gpio::integer(), Msg:atom()) -> ok.
+write(Gpio, Msg) ->
+    whereis(list_to_atom(integer_to_list(Gpio))) !
+      {write, Msg}.
 
 %%
-% pigpio response
+%% pigpio commands
 %%
 
-% parse(_Socket, <<>>) -> ok;
-% parse(Socket,
-%       <<0:32, P1:32, P2:32, 0:32, Rest/binary>>) ->
-%     io:format("setmode pin ~p mode ~p~n", [P1, P2]),
-%     parse(Socket, Rest);
-% parse(Socket,
-%       <<1:32, P1:32, _P2:32, P3:32, Rest/binary>>) ->
-%     io:format("getmode pin ~p mode ~p~n", [P1, P3]),
-%     parse(Socket, Rest);
-% parse(Socket,
-%       <<2:32, P1:32, P2:32, 0:32, Rest/binary>>) ->
-%     io:format("setpullupdown pin ~p pud ~p~n", [P1, P2]),
-%     parse(Socket, Rest);
-% parse(Socket,
-%       <<3:32, _P1:32, _P2:32, P3:32, Rest/binary>>) ->
-%     io:format("read ~p~n", [P3]), parse(Socket, Rest);
-% parse(Socket,
-%       <<4:32, P1:32, P2:32, 0:32, Rest/binary>>) ->
-%     io:format("write pin ~p level ~p~n", [P1, P2]),
-%     parse(Socket, Rest);
-% parse(Socket,
-%       <<10:32, _P1:32, _P2:32, P3:32, Rest/binary>>) ->
-%     io:format("readbits 0-31 ~.2B~n", [P3]),
-%     parse(Socket, Rest);
-% parse(Socket,
-%       <<17:32, _P1:32, _P2:32, P3:32, Rest/binary>>) ->
-%     io:format("hver ~p~n", [P3]), parse(Socket, Rest);
-% parse(_Socket, Response) ->
-%     io:format("Error: ~w~n", [Response]).
+command(hver) ->
+    <<17:(?UINT), 0:(?UINT), 0:(?UINT), 0:(?UINT)>>;
+command(br1) ->
+    <<10:(?UINT), 0:(?UINT), 0:(?UINT), 0:(?UINT)>>.
 
+command(read, Gpio) ->
+    <<3:(?UINT), Gpio:(?UINT), 0:(?UINT), 0:(?UINT)>>;
+command(getmode, Gpio) ->
+    <<1:(?UINT), Gpio:(?UINT), 0:(?UINT), 0:(?UINT)>>.
+
+command(setmode, Gpio, Mode) ->
+    <<0:(?UINT), Gpio:(?UINT), Mode:(?UINT),
+      0:(?UINT)>>; % Input = 0, Output = 1
+command(write, Gpio, Level) ->
+    <<4:(?UINT), Gpio:(?UINT), Level:(?UINT), 0:(?UINT)>>;
+command(setpullupdown, Gpio, Pud) ->
+    <<2:(?UINT), Gpio:(?UINT), Pud:(?UINT),
+      0:(?UINT)>>. % Off = 0, Down = 1, Up (3.3v) = 2 - high/low
+
+%%
+%% pigpio response
+%%
+
+parse(<<>>) -> ok;
+parse(<<0:(?UINT), _P1:(?UINT), P2:(?UINT), 0:(?UINT),
+	Rest/binary>>) ->
+    self() ! {msg, setmode, P2}, parse(Rest);
+parse(<<1:(?UINT), _P1:(?UINT), _P2:(?UINT), P3:(?UINT),
+	Rest/binary>>) ->
+    self() ! {msg, getmode, P3}, parse(Rest);
+parse(<<2:(?UINT), _P1:(?UINT), P2:(?UINT), 0:(?UINT),
+	Rest/binary>>) ->
+    self() ! {msg, setpullupdown, P2}, parse(Rest);
+parse(<<3:(?UINT), _P1:(?UINT), _P2:(?UINT), P3:(?UINT),
+	Rest/binary>>) ->
+    self() ! {msg, read, P3}, parse(Rest);
+parse(<<4:(?UINT), _P1:(?UINT), P2:(?UINT), 0:(?UINT),
+	Rest/binary>>) ->
+    self() ! {msg, write, P2}, parse(Rest);
+parse(<<10:(?UINT), _P1:(?UINT), _P2:(?UINT),
+	P3:(?UINT), Rest/binary>>) ->
+    self() ! {msg, readbits, P3}, parse(Rest);
+parse(<<17:(?UINT), _P1:(?UINT), _P2:(?UINT),
+	P3:(?UINT), Rest/binary>>) ->
+    self() ! {msg, hver, P3}, parse(Rest);
+parse(Response) -> self() ! {msg, error, Response}.
