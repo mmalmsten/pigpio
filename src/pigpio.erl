@@ -11,8 +11,6 @@
 -export([handle_call/3, handle_cast/2, handle_info/2,
 	 init/1]).
 
--define(U, 32 / little).
-
 start_link(Gpio) ->
     gen_server:start_link({local, ?MODULE}, ?MODULE, Gpio,
 			  []).
@@ -53,20 +51,27 @@ handle_info(Msg, State) ->
 %% pigpio commands
 %%
 
-command({hver}) -> <<17:(?U), 0:(?U), 0:(?U), 0:(?U)>>;
-command({br1}) -> <<10:(?U), 0:(?U), 0:(?U), 0:(?U)>>;
+command({hver}) ->
+    <<17:32/little, 0:32/little, 0:32/little, 0:32/little>>;
+command({br1}) ->
+    <<10:32/little, 0:32/little, 0:32/little, 0:32/little>>;
 command({read, Gpio}) ->
-    <<3:(?U), Gpio:(?U), 0:(?U), 0:(?U)>>;
+    <<3:32/little, Gpio:32/little, 0:32/little,
+      0:32/little>>;
 command({getmode, Gpio}) ->
-    <<1:(?U), Gpio:(?U), 0:(?U), 0:(?U)>>;
+    <<1:32/little, Gpio:32/little, 0:32/little,
+      0:32/little>>;
 command({setmode, Gpio, Mode}) ->
     % Input = 0, Output = 1
-    <<0:(?U), Gpio:(?U), Mode:(?U), 0:(?U)>>;
+    <<0:32/little, Gpio:32/little, Mode:32/little,
+      0:32/little>>;
 command({write, Gpio, Level}) ->
-    <<4:(?U), Gpio:(?U), Level:(?U), 0:(?U)>>;
+    <<4:32/little, Gpio:32/little, Level:32/little,
+      0:32/little>>;
 command({setpullupdown, Gpio, Pud}) ->
     % Off = 0, Down = 1, Up (3.3v) = 2 - high/low
-    <<2:(?U), Gpio:(?U), Pud:(?U), 0:(?U)>>.
+    <<2:32/little, Gpio:32/little, Pud:32/little,
+      0:32/little>>.
 
 %%
 %% pigpio response
@@ -76,20 +81,27 @@ parse(<<>>) -> parse(#{}, <<>>).
 
 parse(Map, <<>>) -> Map;
 parse(Map,
-      <<0:(?U), _, P2:(?U), 0:(?U), Rest/binary>>) ->
+      <<0:32/little, _, P2:32/little, 0:32/little,
+	Rest/binary>>) ->
     parse(maps:put(Map, setmode, P2), Rest);
-parse(Map, <<1:(?U), _, _, P3:(?U), Rest/binary>>) ->
+parse(Map,
+      <<1:32/little, _, _, P3:32/little, Rest/binary>>) ->
     parse(maps:put(Map, getmode, P3), Rest);
 parse(Map,
-      <<2:(?U), _, P2:(?U), 0:(?U), Rest/binary>>) ->
+      <<2:32/little, _, P2:32/little, 0:32/little,
+	Rest/binary>>) ->
     parse(maps:put(Map, setpullupdown, P2), Rest);
-parse(Map, <<3:(?U), _, _, P3:(?U), Rest/binary>>) ->
+parse(Map,
+      <<3:32/little, _, _, P3:32/little, Rest/binary>>) ->
     parse(maps:put(Map, read, P3), Rest);
 parse(Map,
-      <<4:(?U), _, P2:(?U), 0:(?U), Rest/binary>>) ->
+      <<4:32/little, _, P2:32/little, 0:32/little,
+	Rest/binary>>) ->
     parse(maps:put(Map, write, P2), Rest);
-parse(Map, <<10:(?U), _, _, P3:(?U), Rest/binary>>) ->
+parse(Map,
+      <<10:32/little, _, _, P3:32/little, Rest/binary>>) ->
     parse(maps:put(Map, readbits, P3), Rest);
-parse(Map, <<17:(?U), _, _, P3:(?U), Rest/binary>>) ->
+parse(Map,
+      <<17:32/little, _, _, P3:32/little, Rest/binary>>) ->
     parse(maps:put(Map, hver, P3), Rest);
 parse(Map, Response) -> maps:put(Map, error, Response).
