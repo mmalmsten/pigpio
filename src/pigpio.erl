@@ -6,7 +6,7 @@
 
 -behaviour(gen_server).
 
--export([start_link/1]).
+-export([call/2, cast/2, start_link/1]).
 
 -export([handle_call/3,
          handle_cast/2,
@@ -18,6 +18,10 @@ start_link(Gpio) ->
                           ?MODULE,
                           Gpio,
                           []).
+
+call(Pid, Msg) -> gen_server:call(Pid, Msg).
+
+cast(Pid, Msg) -> gen_server:cast(Pid, Msg).
 
 init(Gpio) ->
     application:start(inets),
@@ -78,9 +82,9 @@ command({setmode, Gpio, Mode}) ->
 command({write, Gpio, Level}) ->
     <<4:32/little, Gpio:32/little, Level:32/little,
       0:32/little>>;
-command({setpullupdown, Gpio, Pud}) ->
+command({setpullupdown, Gpio, Pid}) ->
     % Off = 0, Down = 1, Up (3.3v) = 2 - high/low
-    <<2:32/little, Gpio:32/little, Pud:32/little,
+    <<2:32/little, Gpio:32/little, Pid:32/little,
       0:32/little>>.
 
 %%
