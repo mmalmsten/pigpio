@@ -4,98 +4,114 @@
 
 -author(mmalmsten).
 
--export([start/2, read/1, write/2]).
+-behaviour(gen_server).
 
--export([init/2, loop/1]).
+-export([start_link/1]).
 
--define(UINT, 32/little).
+-export([handle_call/3,
+         handle_cast/2,
+         handle_info/2,
+         init/1]).
 
-%%
-%% pigpio commands
-%%
+start_link(Gpio) ->
+    gen_server:start_link({local, ?MODULE},
+                          ?MODULE,
+                          Gpio,
+                          []).
 
-% -spec start(Gpio::integer(), Type::atom() = button) -> {ok, Pid::pid()}.
-start(Gpio, Type) -> 
-    Pid = spawn_link(?MODULE,init,[Gpio, Type]),
-    register(list_to_atom(integer_to_list(Gpio)), Pid),
-    {ok,Pid}.
-
-init(Gpio, Type) ->
+init(Gpio) ->
     application:start(inets),
-    {ok, Socket} = gen_tcp:connect("127.0.0.1", 8888, [binary, {packet, 0}]),
-    self() ! {init, Type},
-    loop(#{socket => Socket, gpio => Gpio, type => Type}).
+    {ok, Socket} = gen_tcp:connect("127.0.0.1",
+                                   8888,
+                                   [binary, {packet, 0}]),
+    Socket = false,
+    {ok, #{socket => Socket, gpio => Gpio, data => false}}.
 
-loop(State) ->
+handle_call(read, _, State) ->
+    #{data := Data} = State,
+    {reply, Data, State};
+handle_call(Msg, _From, State) ->
+    io:format("Msg ~p~n", [Msg]),
+    {reply, Msg, State}.
+
+handle_cast({command, Cmd, Input}, State) ->
     #{gpio := Gpio, socket := Socket} = State,
-    receive
-        {init, button} -> 
-            gen_tcp:send(Socket, command(setmode,Gpio,0)),
-            gen_tcp:send(Socket, command(setpullupdown,Gpio,2)),
-            timer:send_interval(1000, read),
-            loop(State);
-        {read, Response_pid} -> 
-            Response_pid ! maps:get(read, State, false),
-            loop(State);
-        {tcp,_,Msg} -> 
-            parse(Msg), 
-            loop(State);
-        {msg,Key,Value} -> 
-            loop(maps:put(Key, Value, State));
-        read ->
-            gen_tcp:send(Socket, command(read, Gpio)),
-            loop(State);
-        X -> 
-            io:format("Unexpected message ~p~n",[X]),
-            loop(State)
-    end.
+    gen_tcp:send(Socket, command({Cmd, Gpio, Input})),
+    {noreply, State};
+handle_cast({read, once}, State) ->
+    #{gpio := Gpio, socket := Socket} = State,
+    gen_tcp:send(Socket, command({read, Gpio})),
+    {noreply, State};
+handle_cast({read, Time}, State) ->
+    #{gpio := Gpio, socket := Socket} = State,
+    timer:apply_interval(Time,
+                         gen_tcp,
+                         send,
+                         [Socket, command({read, Gpio})]),
+    {noreply, State};
+handle_cast(Msg, State) ->
+    io:format("Msg ~p~n", [Msg]),
+    {noreply, State}.
 
-% -spec read(Gpio::integer()) -> {ok, Msg}.
-read(Gpio) -> 
-    whereis(list_to_atom(integer_to_list(Gpio))) ! {read, self()},
-    receive Msg -> Msg end.
-
-% -spec write(Gpio::integer(), Msg:atom()) -> ok.
-write(Gpio, Msg) -> 
-    whereis(list_to_atom(integer_to_list(Gpio))) ! {write, Msg}.
+%% Receive sensor data
+handle_info(Msg, State) ->
+    {noreply, maps:put(data, parse(Msg), State)}.
 
 %%
 %% pigpio commands
 %%
 
-% command(hver) -> <<17:?UINT,0:?UINT,0:?UINT,0:?UINT>>;
-% command(br1) -> <<10:?UINT,0:?UINT,0:?UINT,0:?UINT>>.
-command(read,Gpio) -> <<3:?UINT,Gpio:?UINT,0:?UINT,0:?UINT>>;
-command(getmode,Gpio) -> <<1:?UINT,Gpio:?UINT,0:?UINT,0:?UINT>>.
-command(setmode,Gpio,Mode) -> <<0:?UINT,Gpio:?UINT,Mode:?UINT,0:?UINT>>; % Input = 0, Output = 1
-command(write,Gpio,Level) -> <<4:?UINT,Gpio:?UINT,Level:?UINT,0:?UINT>>;
-command(setpullupdown,Gpio,Pud) -> <<2:?UINT,Gpio:?UINT,Pud:?UINT,0:?UINT>>. % Off = 0, Down = 1, Up (3.3v) = 2 - high/low
+command({hver}) ->
+    <<17:32/little, 0:32/little, 0:32/little, 0:32/little>>;
+command({br1}) ->
+    <<10:32/little, 0:32/little, 0:32/little, 0:32/little>>;
+command({read, Gpio}) ->
+    <<3:32/little, Gpio:32/little, 0:32/little,
+      0:32/little>>;
+command({getmode, Gpio}) ->
+    <<1:32/little, Gpio:32/little, 0:32/little,
+      0:32/little>>;
+command({setmode, Gpio, Mode}) ->
+    % Input = 0, Output = 1
+    <<0:32/little, Gpio:32/little, Mode:32/little,
+      0:32/little>>;
+command({write, Gpio, Level}) ->
+    <<4:32/little, Gpio:32/little, Level:32/little,
+      0:32/little>>;
+command({setpullupdown, Gpio, Pud}) ->
+    % Off = 0, Down = 1, Up (3.3v) = 2 - high/low
+    <<2:32/little, Gpio:32/little, Pud:32/little,
+      0:32/little>>.
 
 %%
 %% pigpio response
 %%
 
-parse(<<>>) -> ok;
-parse(<<0:?UINT, P1:?UINT, P2:?UINT, 0:?UINT, Rest/binary>>) ->
-    self() ! {msg, setmode, P2},
-    parse(Rest);
-parse(<<1:?UINT, P1:?UINT, _P2:?UINT, P3:?UINT, Rest/binary>>) ->
-    self() ! {msg, getmode, P3},
-    parse(Rest);
-parse(<<2:?UINT, P1:?UINT, P2:?UINT, 0:?UINT, Rest/binary>>) ->
-    self() ! {msg, setpullupdown, P2},
-    parse(Rest);
-parse(<<3:?UINT, _P1:?UINT, _P2:?UINT, P3:?UINT, Rest/binary>>) ->
-    self() ! {msg, read, P3},
-    parse(Rest);
-parse(<<4:?UINT, P1:?UINT, P2:?UINT, 0:?UINT, Rest/binary>>) ->
-    self() ! {msg, write, P2},
-    parse(Rest);
-parse(<<10:?UINT, _P1:?UINT, _P2:?UINT, P3:?UINT, Rest/binary>>) ->
-    self() ! {msg, readbits, P3},
-    parse(Rest);
-parse(<<17:?UINT, _P1:?UINT, _P2:?UINT, P3:?UINT, Rest/binary>>) ->
-    self() ! {msg, hver, P3},
-    parse(Rest);
-parse(Response) -> 
-    self() ! {msg, error, Response}.
+parse(<<>>) -> parse(#{}, <<>>).
+
+parse(Map, <<>>) -> Map;
+parse(Map,
+      <<0:32/little, _, P2:32/little, 0:32/little,
+        Rest/binary>>) ->
+    parse(maps:put(Map, setmode, P2), Rest);
+parse(Map,
+      <<1:32/little, _, _, P3:32/little, Rest/binary>>) ->
+    parse(maps:put(Map, getmode, P3), Rest);
+parse(Map,
+      <<2:32/little, _, P2:32/little, 0:32/little,
+        Rest/binary>>) ->
+    parse(maps:put(Map, setpullupdown, P2), Rest);
+parse(Map,
+      <<3:32/little, _, _, P3:32/little, Rest/binary>>) ->
+    parse(maps:put(Map, read, P3), Rest);
+parse(Map,
+      <<4:32/little, _, P2:32/little, 0:32/little,
+        Rest/binary>>) ->
+    parse(maps:put(Map, write, P2), Rest);
+parse(Map,
+      <<10:32/little, _, _, P3:32/little, Rest/binary>>) ->
+    parse(maps:put(Map, readbits, P3), Rest);
+parse(Map,
+      <<17:32/little, _, _, P3:32/little, Rest/binary>>) ->
+    parse(maps:put(Map, hver, P3), Rest);
+parse(Map, Response) -> maps:put(Map, error, Response).
