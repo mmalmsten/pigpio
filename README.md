@@ -2,7 +2,7 @@
 
 Using Erlang for GPIO on a Raspberry Pi with [http://abyz.me.uk/rpi/pigpio/](http://abyz.me.uk/rpi/pigpio/)
 
-⚠️ This library is still very much in a WORK IN PROGRESS state. I'm currently integrating it in [one of my pet projects](https://github.com/mmalmsten/PlantWatcher) and refinements will come. ⚠️
+⚠️ This library is still very much in a WORK IN PROGRESS state. I'm currently integrating it in [one of my pet projects](https://github.com/mmalmsten/PlantWatcher) and refinements will come.
 
 ## 🐞 Prerequisites
 Nothing should be running on port 8888, that's where we'll run the pigpio tcp server.
