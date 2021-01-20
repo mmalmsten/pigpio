@@ -2,9 +2,7 @@
 
 Using Erlang for GPIO on a Raspberry Pi with [http://abyz.me.uk/rpi/pigpio/](http://abyz.me.uk/rpi/pigpio/)
 
-⚠️ This library is still very much in a WORK IN PROGRESS state. I'm currently integrating it in [one of my pet projects](https://github.com/mmalmsten/PlantWatcher) and refinements will come.
-
-Many thanks to [skvamme](https://github.com/skvamme) for letting me fork her implementation on accessing GPIO on a raspberry pi with pigpio and Erlang (and apologies for adding the genserver 😉).
+⚠️ This library is still very much in a WORK IN PROGRESS state and for my personal use. I'm currently integrating it in [one of my pet projects](https://github.com/mmalmsten/PlantWatcher) and refinements will be added later.
 
 ## 🐞 Prerequisites
 
@@ -44,25 +42,25 @@ sudo pigpiod
 #### Set pin mode to input
 
 ```
-ok = pigpio:cast(Pid, {command, setmode, 0})
+ok = pigpio:cast(Pid, {command, setmode, 0}).
 ```
 
 #### Read from the pin once and store in genserver state
 
 ```
-ok = pigpio:cast(Pid, {read, once})
+ok = pigpio:cast(Pid, {read, once}).
 ```
 
 #### Read from the pin every N millisecond and store in genserver state
 
 ```
-ok = pigpio:cast(Pid, {read, N})
+ok = pigpio:cast(Pid, {read, N}).
 ```
 
 #### Get the latest reading from pin
 
 ```
-Reply = pigpio:call(Pid, read)
+Reply = pigpio:call(Pid, read).
 ```
 
 #### Register an LED 💡
@@ -73,11 +71,11 @@ led(Gpio) ->
     gen_server:cast(Pid, {command, setmode, 1}),
     {ok, Pid}.
 
-{ok, Pid} = led(?GPIO_PIN),
+{ok, Pid} = led(?GPIO_PIN).
 
-pigpio:cast(Pid, {command, setpullupdown, 1}) % On
+pigpio:cast(Pid, {command, setpullupdown, 1}). % On
 
-pigpio:cast(Pid, {command, setpullupdown, 1}) % Off
+pigpio:cast(Pid, {command, setpullupdown, 0}). % Off
 ```
 
 #### Register a button 🔘
@@ -89,11 +87,12 @@ button(Gpio) ->
     pigpio:cast(Pid, {command, setpullupdown, 2}),
     {ok, Pid}.
 
-{ok, Pid} = button(?GPIO_PIN),
+{ok, Pid} = button(?GPIO_PIN).
 
-Status = pigpio:call(Pid, read),
+Status = pigpio:call(Pid, read).
 ```
 
 ## TODO:
 
 - [ ] Add possibility to add a listener to a pin and update current status in genserver state
+- [ ] Tests
