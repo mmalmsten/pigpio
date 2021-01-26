@@ -1,14 +1,8 @@
-{application, pigpio,
- [{description, "An OTP library"},
-  {vsn, "0.1.0"},
-  {registered, []},
-  {applications,
-   [kernel,
-    stdlib
-   ]},
-  {env,[]},
-  {modules, ['pigpio']},
-
-  {licenses, ["Apache 2.0"]},
-  {links, []}
- ]}.
+{application, 'Pigpio', [
+	{description, "Using Erlang for GPIO on a Raspberry Pi"},
+	{vsn, "0.1.0"},
+	{modules, ['pigpio']},
+	{registered, []},
+	{applications, [kernel,stdlib,inets]},
+	{env, []}
+]}.
