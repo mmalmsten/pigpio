@@ -13,7 +13,7 @@
          handle_info/2,
          init/1]).
 
--define(TCP_ADDRESS, "127.0.0.1").
+-define(TCP_ADDRESS, "localhost").
 
 -define(TCP_PORT, 8888).
 
@@ -79,16 +79,23 @@ command({read, Gpio}) ->
 command({getmode, Gpio}) ->
     <<1:32/little, Gpio:32/little, 0:32/little,
       0:32/little>>;
-command({setmode, Gpio, Mode}) ->
-    % Input = 0, Output = 1
-    <<0:32/little, Gpio:32/little, Mode:32/little,
+command({setmode, Gpio, 0}) -> % Input
+    <<0:32/little, Gpio:32/little, 0:32/little,
+      0:32/little>>;
+command({setmode, Gpio, 1}) -> % Output
+    <<0:32/little, Gpio:32/little, 1:32/little,
       0:32/little>>;
 command({write, Gpio, Level}) ->
     <<4:32/little, Gpio:32/little, Level:32/little,
       0:32/little>>;
-command({setpullupdown, Gpio, Pid}) ->
-    % Off = 0, Down = 1, Up (3.3v) = 2 - high/low
-    <<2:32/little, Gpio:32/little, Pid:32/little,
+command({setpullupdown, Gpio, 0}) -> % Off
+    <<2:32/little, Gpio:32/little, 0:32/little,
+      0:32/little>>;
+command({setpullupdown, Gpio, 1}) -> % Down
+    <<2:32/little, Gpio:32/little, 1:32/little,
+      0:32/little>>;
+command({setpullupdown, Gpio, 2}) -> % Up (3.3v)
+    <<2:32/little, Gpio:32/little, 2:32/little,
       0:32/little>>.
 
 %%
@@ -123,3 +130,52 @@ parse(Map,
       <<17:32/little, _, _, P3:32/little, Rest/binary>>) ->
     parse(maps:put(hver, P3, Map), Rest);
 parse(Map, Response) -> maps:put(error, Response, Map).
+
+%%----------------------------------------------------------------------
+%% Unit tests
+%%----------------------------------------------------------------------
+-ifdef(TEST).
+
+-include_lib("eunit/include/eunit.hrl").
+
+command_test() ->
+    <<17, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0>> =
+        command({hver}),
+    <<10, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0>> =
+        command({br1}),
+    <<3, 0, 0, 0, 25, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0>> =
+        command({read, 25}),
+    <<1, 0, 0, 0, 25, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0>> =
+        command({getmode, 25}),
+    <<0, 0, 0, 0, 25, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0>> =
+        command({setmode, 25, 0}),
+    <<0, 0, 0, 0, 25, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0>> =
+        command({setmode, 25, 1}),
+    <<4, 0, 0, 0, 25, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0>> =
+        command({write, 25, 0}),
+    <<2, 0, 0, 0, 25, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0>> =
+        command({setpullupdown, 25, 0}),
+    <<2, 0, 0, 0, 25, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0>> =
+        command({setpullupdown, 25, 1}),
+    <<2, 0, 0, 0, 25, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0>> =
+        command({setpullupdown, 25, 2}).
+
+parse_test() ->
+    #{} = parse(<<>>),
+    #{setmode := 1} = parse(<<0:32/little, "_", 1:32/little,
+                              0:32/little>>),
+    #{getmode := 1} = parse(<<1:32/little, "_", "_",
+                              1:32/little>>),
+    #{setpullupdown := 1} = parse(<<2:32/little, "_",
+                                    1:32/little, 0:32/little>>),
+    #{read := 1} = parse(<<3:32/little, "_", "_",
+                           1:32/little>>),
+    #{write := 1} = parse(<<4:32/little, "_", 1:32/little,
+                            0:32/little>>),
+    #{readbits := 1} = parse(<<10:32/little, "_", "_",
+                               1:32/little>>),
+    #{hver := 1} = parse(<<17:32/little, "_", "_",
+                           1:32/little>>),
+    #{error := test} = parse(test).
+
+-endif.
