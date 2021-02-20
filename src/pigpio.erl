@@ -36,7 +36,7 @@ handle_call(read, _, State) ->
     #{data := Data} = State,
     {reply, Data, State};
 handle_call(Msg, _From, State) ->
-    io:format("Msg ~p~n", [Msg]),
+    io:format("handle_call ~p~n", [Msg]),
     {reply, Msg, State}.
 
 handle_cast({command, Cmd, Input}, State) ->
@@ -55,14 +55,14 @@ handle_cast({read, Time}, State) ->
                          [Socket, command({read, Gpio})]),
     {noreply, State};
 handle_cast(Msg, State) ->
-    io:format("Msg ~p~n", [Msg]),
+    io:format("handle_cast ~p~n", [Msg]),
     {noreply, State}.
 
 %% Receive sensor data
 handle_info({tcp, _, Msg}, State) ->
     {noreply, maps:put(data, parse(Msg), State)};
 handle_info(Msg, State) ->
-    io:format("Msg ~p~n", [Msg]),
+    io:format("handle_info ~p~n", [Msg]),
     {noreply, State}.
 
 %%
